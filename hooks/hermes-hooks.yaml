@@ -1,0 +1,31 @@
+# Example Hermes Agent hooks configuration for awoooga-sfx
+#
+# Copy this into your ~/.hermes/config.yaml to enable sound effects.
+# The install.sh script does this automatically, but you can also
+# add these hooks manually if you prefer.
+#
+# Sound events:
+#   post_llm_call       → Agent completes a response    (complete.wav)
+#   on_session_end      → Session ends                   (complete.wav)
+#   pre_approval_request → Agent needs user approval    (approval.wav)
+#   on_session_start    → New session starts             (startup.wav)
+#   post_tool_call      → Tool call completes            (tool_done.wav)
+#
+# Environment variables:
+#   AWOOGA_DIR    — Base directory (default: $HERMES_HOME/awooga-sfx)
+#   HERMES_HOME   — Hermes config directory (default: ~/.hermes)
+
+hooks:
+  post_llm_call:
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
+  on_session_end:
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
+  pre_approval_request:
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
+  on_session_start:
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
+  # Uncomment for tool call sounds (can be noisy!):
+  # post_tool_call:
+  #   - command: "~/.hermes/awooga-sfx/src/play-sound.sh tool_done"
+
+hooks_auto_accept: true
