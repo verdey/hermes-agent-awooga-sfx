@@ -1,0 +1,13 @@
+name: 8bit-blip
+version: "1.0.0"
+description: "Retro arcade bleeps and bloops — LEVEL UP!"
+author: verdey
+license: MIT
+events:
+  complete: complete.wav
+  approval: approval.wav
+  error: error.wav
+  startup: startup.wav
+  tool_done: tool_done.wav
+volume: 0.8
+cooldown_ms: 3000

@@ -1,0 +1,13 @@
+name: ricola-horn
+version: "1.0.0"
+description: "Alpine horn fanfare — RIIIIICOLaaaa!"
+author: verdey
+license: MIT
+events:
+  complete: complete.wav
+  approval: approval.wav
+  error: error.wav
+  startup: startup.wav
+  tool_done: tool_done.wav
+volume: 0.8
+cooldown_ms: 3000
