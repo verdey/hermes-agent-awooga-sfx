@@ -139,15 +139,18 @@ with open("$CONFIG_FILE", "r") as f:
     content = f.read()
 
 # Find the hooks section and add our entries
+# Use the tilde-expanded absolute path. Hermes runs hooks via
+# shlex.split(os.path.expanduser(command)) with shell=False, so $AWOOGA_DIR
+# would never expand — we must bake the absolute path in at install time.
 hook_entries = """
   post_llm_call:
-    - command: "$AWOOGA_DIR/src/play-sound.sh complete"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
   on_session_end:
-    - command: "$AWOOGA_DIR/src/play-sound.sh complete"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
   pre_approval_request:
-    - command: "$AWOOGA_DIR/src/play-sound.sh approval"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
   on_session_start:
-    - command: "$AWOOGA_DIR/src/play-sound.sh startup"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
 """
 
 # Find the hooks: section and append after it
@@ -181,13 +184,13 @@ PYEOF
 
 hooks:
   post_llm_call:
-    - command: "$AWOOGA_DIR/src/play-sound.sh complete"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
   on_session_end:
-    - command: "$AWOOGA_DIR/src/play-sound.sh complete"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
   pre_approval_request:
-    - command: "$AWOOGA_DIR/src/play-sound.sh approval"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
   on_session_start:
-    - command: "$AWOOGA_DIR/src/play-sound.sh startup"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
 hooks_auto_accept: true
 HOOKS
         fi
@@ -206,13 +209,13 @@ else
     cat << HOOKS
 hooks:
   post_llm_call:
-    - command: "$AWOOGA_DIR/src/play-sound.sh complete"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
   on_session_end:
-    - command: "$AWOOGA_DIR/src/play-sound.sh complete"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
   pre_approval_request:
-    - command: "$AWOOGA_DIR/src/play-sound.sh approval"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
   on_session_start:
-    - command: "$AWOOGA_DIR/src/play-sound.sh startup"
+    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
 hooks_auto_accept: true
 HOOKS
 fi
