@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # admin.sh — Interactive admin menu for hermes-agent-awooga-sfx
+# @category awooga
+# @web_safe no
+# @cron_safe no
+# @timeout 0
 #
 # Usage: admin.sh
 #

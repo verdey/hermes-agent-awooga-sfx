@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # play-sound.sh — Cross-platform sound player for Hermes Agent hooks
+# @category awooga
+# @web_safe yes
+# @cron_safe yes
+# @timeout 30
+# @param event:select:complete:complete,approval,error,startup,tool_done:Event sound to play
 #
 # Usage:
 #   play-sound.sh <event>           # Play a specific event sound

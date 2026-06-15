@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # search-sfx.sh — Search Freesound API and create custom sound packs
+# @category awooga
+# @web_safe yes
+# @cron_safe yes
+# @timeout 120
+# @param query:text::Search query for Freesound
 #
 # Usage:
 #   search-sfx.sh <query>                  # Search Freesound for sounds

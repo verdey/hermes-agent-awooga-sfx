@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # install-pack.sh — Download and install a CDN sound pack
+# @category awooga
+# @web_safe yes
+# @cron_safe yes
+# @timeout 120
+# @param pack_id:text::Pack ID to install from GitHub Releases
 #
 # Usage:
 #   install-pack.sh <pack-id>              # Install a pack from GitHub Releases

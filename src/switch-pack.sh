@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # switch-pack.sh — Switch the active sound pack
+# @category awooga
+# @web_safe yes
+# @cron_safe no
+# @timeout 30
+# @param pack_name:text:awooga-tugboat:Pack name to switch to
 #
 # Usage:
 #   switch-pack.sh <pack-name>    # Switch to a specific pack
