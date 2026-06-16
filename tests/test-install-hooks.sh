@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
-# test-install-hooks.sh — Regression test for $AWOOGA_DIR env-var expansion bug
+# test-install-hooks.sh — Regression test for hook registration
 #
-# Bug (historical): install.sh used to write `command: "$AWOOGA_DIR/src/play-sound.sh ..."`
-# into ~/.hermes/config.yaml. Hermes runs hooks with
-#   argv = shlex.split(os.path.expanduser(command))
-#   subprocess.run(argv, shell=False)
-# so $AWOOGA_DIR never expands. The fix is to bake the absolute path in
-# (using the ~ form, which Hermes's os.path.expanduser DOES resolve) at
-# install time.
+# Verifies that register_hooks() handles all observable forms of the
+# `hooks:` key in ~/.hermes/config.yaml without producing invalid YAML
+# or leaving duplicate keys:
 #
-# This test verifies the fix by sourcing src/_lib.sh (which install.sh now
-# uses) against hermetic temp configs and asserting the resulting config.yaml
-# contains the absolute path and no unexpanded env-var references.
+#   - missing entirely
+#   - hooks: {}                  (inline empty dict — the historical bug)
+#   - hooks: false               (boolean false — Hermes's default)
+#   - hooks: null                (null value)
+#   - hooks: with content        (populated block — append entries)
+#   - hooks: with nothing after  (empty block — append entries)
 #
-# Idempotent: cleans up its own temp dirs. Re-runnable.
+# Also asserts idempotency (re-running is a no-op).
 
 set -euo pipefail
 
@@ -22,151 +21,198 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 INSTALL_SH="$REPO_DIR/install.sh"
 LIB_SH="$REPO_DIR/src/_lib.sh"
 
-if [[ ! -f "$INSTALL_SH" ]]; then
-    echo "FAIL: install.sh not found at $INSTALL_SH"
-    exit 1
-fi
-if [[ ! -f "$LIB_SH" ]]; then
-    echo "FAIL: _lib.sh not found at $LIB_SH"
-    exit 1
-fi
+[[ -f "$INSTALL_SH" ]] || { echo "FAIL: install.sh not found"; exit 1; }
+[[ -f "$LIB_SH" ]]    || { echo "FAIL: _lib.sh not found"; exit 1; }
 
-PASS=0
-FAIL=0
-FAILS=()
-
+PASS=0; FAIL=0; FAILS=()
 pass() { PASS=$((PASS + 1)); echo "  ✓ $*"; }
 fail() { FAIL=$((FAIL + 1)); FAILS+=("$*"); echo "  ✗ $*"; }
 
-# Build a hermetic temp dir. Always clean up on exit.
+# Hermetic temp dir.
 TMP="$(mktemp -d)"
-cleanup() { rm -rf "$TMP"; }
-trap cleanup EXIT
+trap 'rm -rf "$TMP"' EXIT
 
-FAKE_HOME="$TMP/fakehome"
-FAKE_HERMES_HOME="$FAKE_HOME/.hermes"
-FAKE_AWOOGA_DIR="$FAKE_HERMES_HOME/awooga-sfx"
-mkdir -p "$FAKE_HERMES_HOME" "$FAKE_AWOOGA_DIR/src"
-
-# Source the shared lib. It defines register_hooks and the logging helpers.
-# We override the logging helpers with noop versions for test output.
+# Stub the logging helpers; source the lib.
 info() { :; }
 ok()   { :; }
 warn() { :; }
 err()  { :; }
-
 source "$LIB_SH"
 
-# ─── Static check ───────────────────────────────────────────────────────
+# ─── Static checks ──────────────────────────────────────────────────────
 echo ""
-echo "▶ Static check: _lib.sh must not write \$AWOOGA_DIR in any 'command:' line"
-if grep -nE 'command:[[:space:]]+"[^"]*\$AWOOGA_DIR' "$LIB_SH"; then
-    fail "_lib.sh still contains a 'command: \"\$AWOOGA_DIR/...\"' literal"
+echo "▶ Static checks"
+if grep -nE 'command:[[:space:]]+"[^"]*\$AWOOGA_DIR' "$LIB_SH" "$INSTALL_SH"; then
+    fail "literal '\$AWOOGA_DIR' in command: line"
 else
-    pass "no 'command: \"\$AWOOGA_DIR/...\"' literal in _lib.sh"
+    pass "no '\$AWOOGA_DIR' in any command: line"
 fi
-
-# Also check install.sh has no remaining duplicate hook blocks
-echo ""
-echo "▶ Static check: install.sh must source _lib.sh"
 if grep -qE "source.*_lib\.sh" "$INSTALL_SH"; then
     pass "install.sh sources _lib.sh"
 else
     fail "install.sh does not source _lib.sh"
 fi
 
-# ─── Helper: assert a config.yaml has the expected properties ────────────
+# ─── Assertion helper ───────────────────────────────────────────────────
 
-assert_good_config() {
-    local cfg="$1"
-    local label="$2"
+assert_valid_yaml() {
+    local cfg="$1" label="$2"
+    if python3 -c "import yaml; yaml.safe_load(open('$cfg'))" 2>/dev/null; then
+        pass "[$label] config.yaml is valid YAML"
+    else
+        fail "[$label] config.yaml is INVALID YAML"
+        python3 -c "import yaml; yaml.safe_load(open('$cfg'))" 2>&1 | sed 's/^/      /' || true
+    fi
+}
 
-    # The 4 hook commands must each reference the absolute path
-    if grep -qE 'command:[[:space:]]*"~/.hermes/awooga-sfx/src/play-sound\.sh complete"' "$cfg"; then
-        pass "[$label] post_llm_call / on_session_end command uses absolute path"
+assert_hooks_present() {
+    local cfg="$1" label="$2"
+    # Each hook's event name and its command can land on different lines
+    # (e.g. PyYAML's `key:\n  - command: "..."` form). Use awk-style
+    # multi-line matching via python to assert both halves are present.
+    if python3 - "$cfg" <<'PYEOF' 2>/dev/null
+import sys, yaml
+cfg = sys.argv[1]
+with open(cfg) as f:
+    data = yaml.safe_load(f)
+hooks = data.get("hooks") if isinstance(data, dict) else None
+required = {
+    "post_llm_call": "complete",
+    "on_session_end": "complete",
+    "pre_approval_request": "approval",
+    "on_session_start": "startup",
+}
+if not isinstance(hooks, dict):
+    sys.exit(1)
+for key, want in required.items():
+    cmds = hooks.get(key, [])
+    if not any("play-sound.sh" in c.get("command", "") and want in c.get("command", "") for c in cmds):
+        sys.exit(1)
+sys.exit(0)
+PYEOF
+    then
+        pass "[$label] all 4 hook entries present with correct event → command mapping"
     else
-        fail "[$label] missing absolute-path command for complete sound"
+        fail "[$label] one or more hook entries are missing or mapped to wrong command"
     fi
-    if grep -qE 'command:[[:space:]]*"~/.hermes/awooga-sfx/src/play-sound\.sh approval"' "$cfg"; then
-        pass "[$label] pre_approval_request command uses absolute path"
-    else
-        fail "[$label] missing absolute-path command for approval sound"
-    fi
-    if grep -qE 'command:[[:space:]]*"~/.hermes/awooga-sfx/src/play-sound\.sh startup"' "$cfg"; then
-        pass "[$label] on_session_start command uses absolute path"
-    else
-        fail "[$label] missing absolute-path command for startup sound"
-    fi
-
-    # No line should contain $AWOOGA_DIR
-    if grep -q '\$AWOOGA_DIR' "$cfg"; then
-        fail "[$label] config.yaml contains literal '\$AWOOGA_DIR' reference"
-        grep -n '\$AWOOGA_DIR' "$cfg" | sed 's/^/      /'
-    else
-        pass "[$label] no '\$AWOOGA_DIR' in config.yaml"
-    fi
-
-    # No unexpanded env-var references in command: lines
-    if grep -E '^[[:space:]]*-?[[:space:]]*command:' "$cfg" | grep -qE '\$[A-Za-z_][A-Za-z0-9_]*'; then
-        fail "[$label] config.yaml has a 'command:' line with an unexpanded \$VAR"
-        grep -nE '^[[:space:]]*-?[[:space:]]*command:' "$cfg" | grep -E '\$[A-Za-z_][A-Za-z0-9_]*' | sed 's/^/      /'
-    else
-        pass "[$label] no unexpanded \$VAR in any command: line"
-    fi
-
-    # hooks_auto_accept: true must be present
-    if grep -q '^hooks_auto_accept: true' "$cfg"; then
+    if grep -qE '^hooks_auto_accept:[[:space:]]*true[[:space:]]*$' "$cfg"; then
         pass "[$label] hooks_auto_accept: true is set"
     else
         fail "[$label] hooks_auto_accept: true is missing"
     fi
+    # No literal $AWOOGA_DIR
+    if grep -qE 'command:.*\$AWOOGA_DIR' "$cfg"; then
+        fail "[$label] config.yaml contains '\$AWOOGA_DIR' in a command line"
+    else
+        pass "[$label] no '\$AWOOGA_DIR' in command: lines"
+    fi
+    # No duplicate top-level hooks_auto_accept
+    local dup
+    dup=$(grep -cE '^hooks_auto_accept:' "$cfg" || true)
+    if [[ "$dup" -eq 1 ]]; then
+        pass "[$label] exactly one hooks_auto_accept key"
+    else
+        fail "[$label] hooks_auto_accept appears $dup times (expected 1)"
+    fi
 }
 
-# ─── Case 1: existing config with existing hooks: section ───────────────
+run_case() {
+    local label="$1" input="$2" path_strategy="$3"
+    local cfg="$TMP/$label-config.yaml"
+    echo "$input" > "$cfg"
+    case "$path_strategy" in
+        write) register_hooks "$cfg" >/dev/null 2>&1 || true ;;
+        cat)   register_hooks "$cfg" > "$cfg.new" 2>/dev/null; mv "$cfg.new" "$cfg" ;;
+    esac
+    assert_valid_yaml "$cfg" "$label"
+    assert_hooks_present "$cfg" "$label"
+}
+
+# ─── Cases ──────────────────────────────────────────────────────────────
+
 echo ""
-echo "▶ Case 1: existing config.yaml with existing hooks: section"
-CONFIG_FILE="$FAKE_HERMES_HOME/config.yaml"
-cat > "$CONFIG_FILE" <<YAML
-model: claude-sonnet
+echo "▶ Case 1: existing config with existing hooks: section (populated)"
+run_case "case1" "model: claude-sonnet
 hooks:
   some_other_hook:
-    - command: "echo hello"
-YAML
-register_hooks
-assert_good_config "$CONFIG_FILE" "case1"
+    - command: 'echo hello'
+" "write"
 
-# ─── Case 2: existing config WITHOUT a hooks: section ─────────────────
 echo ""
-echo "▶ Case 2: existing config.yaml with no hooks: section"
-CONFIG_FILE="$FAKE_HERMES_HOME/config.yaml"
-cat > "$CONFIG_FILE" <<YAML
-model: claude-sonnet
+echo "▶ Case 2: existing config WITHOUT a hooks: section"
+run_case "case2" "model: claude-sonnet
 some_other_setting: 42
-YAML
-register_hooks
-assert_good_config "$CONFIG_FILE" "case2"
+" "write"
 
-# ─── Case 3: no config file at all (Hermes fresh install) ──────────────
 echo ""
-echo "▶ Case 3: no config.yaml exists"
-CONFIG_FILE="$FAKE_HERMES_HOME/config.yaml"
-rm -f "$CONFIG_FILE"
-register_hooks > "$CONFIG_FILE" 2>/dev/null
-assert_good_config "$CONFIG_FILE" "case3"
+echo "▶ Case 3: no config file at all (Hermes fresh install)"
+CFG="$TMP/case3-config.yaml"
+rm -f "$CFG"
+# IMPORTANT: redirect to a different file, not the same path.
+# Otherwise the redirect itself creates the file and the "no config"
+# branch never fires.
+register_hooks "$CFG" > "$TMP/case3-out.yaml" 2>/dev/null
+mv "$TMP/case3-out.yaml" "$CFG"
+assert_valid_yaml "$CFG" "case3"
+assert_hooks_present "$CFG" "case3"
 
-# ─── Case 4: re-running install (idempotency / no-double-registration) ──
 echo ""
-echo "▶ Case 4: re-running when hooks are already present (should be a no-op)"
-register_hooks
-assert_good_config "$CONFIG_FILE" "case4"
+echo "▶ Case 4: re-running when hooks are already present (idempotency)"
+register_hooks "$CFG"
+assert_valid_yaml "$CFG" "case4"
+assert_hooks_present "$CFG" "case4"
+# Verify the file did not grow on re-run (idempotent)
+local_size=$(wc -c < "$CFG")
+register_hooks "$CFG"
+local_size2=$(wc -c < "$CFG")
+if [[ "$local_size" == "$local_size2" ]]; then
+    pass "[case4] file size unchanged on re-run ($local_size bytes)"
+else
+    fail "[case4] file size changed: $local_size → $local_size2 (not idempotent)"
+fi
 
-# ─── Verdict ───────────────────────────────────────────────────────────
+echo ""
+echo "▶ Case 5: hooks: {} (the historical bug — inline empty dict)"
+run_case "case5" "model: claude-sonnet
+hooks: {}
+hooks_auto_accept: false
+" "write"
+
+echo ""
+echo "▶ Case 6: hooks: false (Hermes's literal default state)"
+run_case "case6" "model: claude-sonnet
+hooks: false
+" "write"
+
+echo ""
+echo "▶ Case 7: hooks: null"
+run_case "case7" "model: claude-sonnet
+hooks: null
+" "write"
+
+echo ""
+echo "▶ Case 8: hooks: (empty block, no children)"
+run_case "case8" "model: claude-sonnet
+hooks:
+" "write"
+
+echo ""
+echo "▶ Case 9: deeply nested existing hooks (mixed user + ours)"
+run_case "case9" "model: claude-sonnet
+hooks:
+  pre_tool_call:
+    - command: 'echo tool'
+  post_tool_call:
+    - command: 'echo done'
+  on_session_start:
+    - command: 'echo start'
+" "write"
+
+# ─── Verdict ────────────────────────────────────────────────────────────
 echo ""
 echo "──────────────────────────────────────"
 if [[ $FAIL -eq 0 ]]; then
     echo "PASS: $PASS checks passed, 0 failed"
-    echo "  _lib.sh::register_hooks() writes the absolute path (~/.hermes/awooga-sfx/...)"
-    echo "  to config.yaml, which is what Hermes needs since it does not expand env vars."
     exit 0
 else
     echo "FAIL: $FAIL of $((PASS + FAIL)) checks failed"

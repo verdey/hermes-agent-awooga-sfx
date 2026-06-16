@@ -2,7 +2,7 @@
 
 Scripts for managing hermes-agent-awooga-sfx sound packs.
 
-**Location:** Scripts live in `src/` (not `_ops/awooga/`) because they're referenced by `hooks/hermes-hooks.yaml`, `Makefile`, and `install.sh`. The `_ops/awooga/` directory documents the convention; future projects place scripts directly in `_ops/`.
+**Location:** Scripts live in `src/` (not `_ops/awooga/`) because they're referenced by `install.sh` and tests. The `_ops/awooga/` directory documents the convention; future projects place scripts directly in `_ops/`.
 
 ---
 
@@ -22,16 +22,14 @@ The hash/anchor maps directly to the `@anchor` value on each script's `@param` l
 
 ### Anchors → config.test forms
 
-| Anchor | Script | Form title | @web_safe | @cron_safe |
-|--------|--------|-------------|-----------|------------|
+| Anchor | Script | Form title | `@web_safe` | `@cron_safe` |
+|--------|--------|------------|-------------|-------------|
 | `#play-sound` | `src/play-sound.sh` | 🔊 Play Sound | ✅ | ✅ |
-| `#install-pack` | `src/install-pack.sh` | 📥 Install Pack | ✅ | ✅ |
-| `#search-sfx` | `src/search-sfx.sh` | 🔍 Search SFX | ✅ | ✅ |
 | `#switch-pack` | `src/switch-pack.sh` | 🔀 Switch Pack | ✅ | ❌ |
-| `#admin` | `src/admin.sh` | Admin Menu | ❌ | ❌ |
+| `#self-test` | `src/self-test.sh` | 🩺 Self-Test | ✅ | ✅ |
 
 **Example agent instruction:**
-> "I surfaced the diagnostic output — the issue is the Hermes hooks aren't registered. Go to config.test and run `#install-hooks` if that form exists, or manually re-run install.sh. Here's the deep link: https://config.test?hermes-agent-awooga-sfx#play-sound"
+> "The self-test came back clean — pack is active and hooks are wired. To verify in config.test: https://config.test?hermes-agent-awooga-sfx#self-test"
 
 **Feature summary:** config.test is the single admin front door. Agents reference the exact form by anchor. No clicking around. This is how Dan wants it done.
 
@@ -42,11 +40,9 @@ The hash/anchor maps directly to the `@anchor` value on each script's `@param` l
 | Script | `@anchor` | `@web_safe` | `@cron_safe` | `@timeout` | Purpose |
 |--------|-----------|-------------|-------------|-----------|---------|
 | `src/play-sound.sh` | `#play-sound` | ✅ | ✅ | 30s | Play an event sound (complete, approval, error, startup, tool_done) |
-| `src/install-pack.sh` | `#install-pack` | ✅ | ✅ | 120s | Download and install a CDN sound pack |
-| `src/search-sfx.sh` | `#search-sfx` | ✅ | ✅ | 120s | Search Freesound API for sounds |
 | `src/switch-pack.sh` | `#switch-pack` | ✅ | ❌ | 30s | Switch the active sound pack |
-| `src/admin.sh` | `#admin` | ❌ | ❌ | 0 | Interactive admin menu (terminal-only) |
-| `src/_lib.sh` | — | ❌ | ❌ | — | Shared: `register_hooks()`, logging helpers. Sourced by `install.sh` and tests. |
+| `src/self-test.sh` | `#self-test` | ✅ | ✅ | 30s | Diagnose install state (event resolution, hooks, audio player) |
+| `src/_lib.sh` | — | ❌ | ❌ | — | Shared: `register_hooks()`, logging. Sourced by `install.sh` and tests. |
 
 ## Convention
 
@@ -55,3 +51,13 @@ All scripts use `@param` headers for self-description. The cabinet (`config.test
 ## Usage via config.test
 
 Use the deep-links in the [🧭 config.test Integration](#-config-test-integration--deep-link-convention) section above — each script has a named anchor for direct linking.
+
+## Surface-area policy (June 2026)
+
+This product is intentionally skinny. It plays sounds on Hermès hooks. That's it.
+
+- **In scope:** install, register hooks, play sounds, switch packs, self-diagnose
+- **Out of scope:** TUI menus, CDN pack distribution, Freesound search, custom pack builders, audio editing
+- **Why:** the removed surfaces were never load-bearing; the value of a sound pack is the sounds, not the management UI
+
+If you need a feature that used to live here (TUI, pack search, CDN install), the right answer is usually a separate small tool that *uses* awooga-sfx, not a feature added back to it.

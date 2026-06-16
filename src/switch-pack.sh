@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # switch-pack.sh — Switch the active sound pack
-# @category awooga
+# @anchor switch-pack
 # @web_safe yes
 # @cron_safe no
 # @timeout 30
-# @anchor switch-pack
 # @param pack_name:text:awooga-tugboat:Pack name to switch to
 #
 # Usage:
 #   switch-pack.sh <pack-name>    # Switch to a specific pack
-#   switch-pack.sh --off          # Disable sounds
 #   switch-pack.sh --list         # List available packs
 #   switch-pack.sh --current      # Show current pack
-#   switch-pack.sh --on           # Re-enable sounds (if disabled)
+#   switch-pack.sh --off          # Disable sounds
+#   switch-pack.sh --on           # Re-enable sounds
 
 set -euo pipefail
 
@@ -23,106 +22,53 @@ DISABLED_FILE="$AWOOGA_DIR/disabled"
 PACKS_DIR="$AWOOGA_DIR/packs"
 DEFAULT_PACK="awooga-tugboat"
 
-list_packs() {
-    echo "📋 Available sound packs:"
-    echo ""
-    local active_pack="$DEFAULT_PACK"
-    if [[ -f "$ACTIVE_PACK_FILE" ]]; then
-        active_pack=$(cat "$ACTIVE_PACK_FILE" 2>/dev/null || echo "$DEFAULT_PACK")
-    fi
-    if [[ -d "$PACKS_DIR" ]]; then
-        for pack_dir in "$PACKS_DIR"/*/; do
-            local name
-            name=$(basename "$pack_dir")
-            local marker="  "
-            if [[ "$name" == "$active_pack" ]]; then
-                marker="← "
-            fi
-            local desc=""
-            if [[ -f "$pack_dir/pack.yaml" ]]; then
-                desc=$(grep '^description:' "$pack_dir/pack.yaml" 2>/dev/null | sed 's/description: *//' | tr -d '"' || true)
-            fi
-            echo "  ${marker}${name}  ${desc}"
-        done
-    fi
-    echo ""
-    if [[ -f "$DISABLED_FILE" ]]; then
-        echo "  ⚠️  Sounds are currently DISABLED"
-    fi
+current_pack() {
+    [[ -f "$ACTIVE_PACK_FILE" ]] && cat "$ACTIVE_PACK_FILE" 2>/dev/null || echo "$DEFAULT_PACK"
 }
 
-show_current() {
-    local active_pack="$DEFAULT_PACK"
-    if [[ -f "$ACTIVE_PACK_FILE" ]]; then
-        active_pack=$(cat "$ACTIVE_PACK_FILE" 2>/dev/null || echo "$DEFAULT_PACK")
-    fi
-    echo "$active_pack"
+list_packs() {
+    echo "📋 Available sound packs:"
+    local active
+    active=$(current_pack)
+    [[ -d "$PACKS_DIR" ]] || { echo "  (none installed)"; return; }
+    for d in "$PACKS_DIR"/*/; do
+        [[ -d "$d" ]] || continue
+        local name marker desc=""
+        name=$(basename "$d")
+        marker="  "
+        [[ "$name" == "$active" ]] && marker="← "
+        [[ -f "$d/pack.yaml" ]] && desc=$(grep '^description:' "$d/pack.yaml" | sed 's/description:[[:space:]]*//' | tr -d '"' || true)
+        echo "  ${marker}${name}  ${desc}"
+    done
+    [[ -f "$DISABLED_FILE" ]] && echo "  ⚠️  Sounds are currently DISABLED"
 }
 
 switch_to() {
-    local pack_name="$1"
-
-    if [[ ! -d "$PACKS_DIR/$pack_name" ]]; then
-        echo "❌ Pack not found: $pack_name"
-        echo "   Available packs:"
-        ls -1 "$PACKS_DIR" 2>/dev/null | sed 's/^/     /'
+    local name="$1"
+    [[ -d "$PACKS_DIR/$name" ]] || {
+        echo "❌ Pack not found: $name"
+        echo "   Use --list to see available packs."
         exit 1
-    fi
-
+    }
     mkdir -p "$AWOOGA_DIR"
-    echo "$pack_name" > "$ACTIVE_PACK_FILE"
-
-    # Play startup sound as confirmation
-    PLAY_SCRIPT="$(cd "$(dirname "$0")" && pwd)/play-sound.sh"
-    if [[ -x "$PLAY_SCRIPT" ]]; then
-        AWOOGA_DIR="$AWOOGA_DIR" "$PLAY_SCRIPT" startup &>/dev/null &
-    fi
-
-    local desc=""
-    if [[ -f "$PACKS_DIR/$pack_name/pack.yaml" ]]; then
-        desc=$(grep '^description:' "$PACKS_DIR/$pack_name/pack.yaml" 2>/dev/null | sed 's/description: *//' | tr -d '"' || true)
-    fi
-    echo "✅ Switched to: $pack_name ${desc:+— $desc}"
+    echo "$name" > "$ACTIVE_PACK_FILE"
+    echo "✅ Switched to: $name"
+    # Confirmation sound
+    local play="$AWOOGA_DIR/src/play-sound.sh"
+    [[ -x "$play" ]] && AWOOGA_DIR="$AWOOGA_DIR" "$play" startup &>/dev/null &
 }
-
-disable_sounds() {
-    mkdir -p "$AWOOGA_DIR"
-    touch "$DISABLED_FILE"
-    echo "🔇 Sounds disabled. Use --on to re-enable."
-}
-
-enable_sounds() {
-    rm -f "$DISABLED_FILE"
-    echo "🔊 Sounds enabled."
-}
-
-# ─── Main ───────────────────────────────────────────────────────────
 
 case "${1:-}" in
-    --list|-l)
-        list_packs
-        ;;
-    --current|-c)
-        show_current
-        ;;
-    --off)
-        disable_sounds
-        ;;
-    --on)
-        enable_sounds
-        ;;
+    --list|-l)      list_packs ;;
+    --current|-c)   current_pack ;;
+    --off)          mkdir -p "$AWOOGA_DIR"; touch "$DISABLED_FILE"; echo "🔇 Sounds disabled." ;;
+    --on)           rm -f "$DISABLED_FILE"; echo "🔊 Sounds enabled." ;;
     --help|-h)
         echo "Usage: switch-pack.sh <pack-name>"
-        echo "       switch-pack.sh --off      # Disable sounds"
-        echo "       switch-pack.sh --on       # Re-enable sounds"
-        echo "       switch-pack.sh --list     # List available packs"
-        echo "       switch-pack.sh --current  # Show current pack"
+        echo "       switch-pack.sh --list        # List packs"
+        echo "       switch-pack.sh --current     # Show current"
+        echo "       switch-pack.sh --off | --on  # Mute / unmute"
         ;;
-    "")
-        echo "❌ Please specify a pack name. Use --list to see available packs."
-        exit 1
-        ;;
-    *)
-        switch_to "$1"
-        ;;
+    "")             echo "❌ Specify a pack name. Use --list to see available." ; exit 1 ;;
+    *)              switch_to "$1" ;;
 esac
