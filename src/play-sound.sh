@@ -4,6 +4,7 @@
 # @web_safe yes
 # @cron_safe yes
 # @timeout 30
+# @anchor play-sound
 # @param event:select:complete:complete,approval,error,startup,tool_done:Event sound to play
 #
 # Usage:
@@ -69,6 +70,7 @@ detect_audio_player() {
 
 play_wav() {
     local file="$1"
+    local volume="${2:-$DEFAULT_VOLUME}"
     local player
 
     player=$(detect_audio_player) || {
@@ -78,10 +80,11 @@ play_wav() {
     }
 
     # Play asynchronously so we never block the agent
+    # Note: only afplay natively supports volume. aplay/paplay/pw-play
+    # ignore volume (would need sox/pulseaudio volume pre-amp instead).
     case "$player" in
         afplay)
-            # afplay supports volume flag directly
-            nohup afplay "$file" &>/dev/null &
+            nohup afplay -v "$volume" "$file" &>/dev/null &
             ;;
         aplay)
             nohup aplay -q "$file" &>/dev/null &
@@ -246,7 +249,9 @@ main() {
     fi
 
     # Play the sound
-    play_wav "$wav_file"
+    local volume
+    volume=$(read_pack_volume "$pack_yaml")
+    play_wav "$wav_file" "$volume"
 
     # Hermes shell hooks require valid JSON on stdout
     echo "{}"

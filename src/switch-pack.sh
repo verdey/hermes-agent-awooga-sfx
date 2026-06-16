@@ -4,6 +4,7 @@
 # @web_safe yes
 # @cron_safe no
 # @timeout 30
+# @anchor switch-pack
 # @param pack_name:text:awooga-tugboat:Pack name to switch to
 #
 # Usage:

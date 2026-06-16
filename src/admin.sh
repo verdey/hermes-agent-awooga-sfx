@@ -358,16 +358,20 @@ main() {
             4)
                 echo ""
                 echo -e "  ${YELLOW}📥 Install CDN Pack${NC}"
-                echo "  Coming soon — use install-pack.sh directly for now."
-                echo "  Usage: install-pack.sh <pack-id>"
-                echo ""
+                echo -n "  Pack ID (Enter to list available): "
+                read -r pack_id
+                if [[ -n "$pack_id" ]]; then
+                    "$SCRIPT_DIR/install-pack.sh" "$pack_id"
+                else
+                    "$SCRIPT_DIR/install-pack.sh" --list
+                fi
                 ;;
             5)
                 echo ""
                 echo -e "  ${YELLOW}🔍 Search SFX (Freesound)${NC}"
-                echo "  Coming soon — use search-sfx.sh directly for now."
-                echo "  Usage: search-sfx.sh <query>"
-                echo ""
+                echo -n "  Search query (Enter for 'foghorn'): "
+                read -r query
+                "$SCRIPT_DIR/search-sfx.sh" "${query:-foghorn}"
                 ;;
             6) do_volume ;;
             7) do_toggle ;;

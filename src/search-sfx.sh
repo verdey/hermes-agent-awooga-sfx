@@ -4,6 +4,7 @@
 # @web_safe yes
 # @cron_safe yes
 # @timeout 120
+# @anchor search-sfx
 # @param query:text::Search query for Freesound
 #
 # Usage:
@@ -71,31 +72,7 @@ cmd_search() {
     echo "  Found $count results (showing top 10):"
     echo ""
 
-    # Extract results
-    local result_num=0
-    local in_result=false
-    local sound_id="" sound_name="" sound_desc="" sound_dur="" sound_user="" sound_license=""
-
-    while IFS= read -r line; do
-        if echo "$line" | grep -q '"id"'; then
-            sound_id=$(echo "$line" | sed 's/.*"id"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/')
-        fi
-        if echo "$line" | grep -q '"name"'; then
-            sound_name=$(echo "$line" | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-        fi
-        if echo "$line" | grep -q '"duration"'; then
-            sound_dur=$(echo "$line" | sed 's/.*"duration"[[:space:]]*:[[:space:]]*\([0-9.]*\).*/\1/')
-        fi
-        if echo "$line" | grep -q '"username"'; then
-            sound_user=$(echo "$line" | sed 's/.*"username"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-        fi
-        if echo "$line" | grep -q '"license"'; then
-            sound_license=$(echo "$line" | sed 's/.*"license"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-        fi
-    done <<< "$response"
-
-    # Since simple line-by-line parsing is fragile with JSON, use a more robust approach
-    # Try using python3 for JSON parsing if available
+    # Parse results via Python (the only robust option for nested JSON)
     if command -v python3 &>/dev/null; then
         python3 << PYEOF
 import json, sys

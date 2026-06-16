@@ -15,27 +15,13 @@ REPO_NAME="hermes-agent-awooga-sfx"
 GITHUB_REPO="https://github.com/${REPO_OWNER}/${REPO_NAME}"
 DEFAULT_PACK="awooga-tugboat"
 
-# ─── Colors ──────────────────────────────────────────────────────────
-
-if [[ -t 1 ]]; then
-    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[0;33m'
-    BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-else
-    RED='' GREEN='' YELLOW='' BLUE='' CYAN='' BOLD='' NC=''
-fi
-
-# ─── Detect paths ────────────────────────────────────────────────────
+# ─── Paths ──────────────────────────────────────────────────────────────
 
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 AWOOGA_DIR="${AWOOGA_DIR:-$HERMES_HOME/awooga-sfx}"
 PACKS_DIR="${AWOOGA_DIR}/packs"
 
-info()  { echo -e "${BLUE}ℹ️  $*${NC}"; }
-ok()    { echo -e "${GREEN}✅ $*${NC}"; }
-warn()  { echo -e "${YELLOW}⚠️  $*${NC}"; }
-err()   { echo -e "${RED}❌ $*${NC}"; }
-
-# ─── Pre-flight checks ──────────────────────────────────────────────
+# ─── Pre-flight checks ─────────────────────────────────────────────────
 
 echo ""
 echo -e "${BOLD}📢 hermes-agent-awooga-sfx installer${NC}"
@@ -61,16 +47,23 @@ else
     warn "Install Hermes first: https://hermes-agent.nousresearch.com/docs/"
 fi
 
-# ─── Install ─────────────────────────────────────────────────────────
+# ─── Source shared lib ──────────────────────────────────────────────────
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "$SCRIPT_DIR/src/_lib.sh" ]]; then
+    source "$SCRIPT_DIR/src/_lib.sh"
+else
+    err "_lib.sh not found. Cannot proceed."
+    exit 1
+fi
+
+# ─── Install ────────────────────────────────────────────────────────────
 
 # If running from a cloned repo, use local files; otherwise clone
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "$SCRIPT_DIR/src/play-sound.sh" ]]; then
-    # Running from a cloned repo
     SOURCE_DIR="$SCRIPT_DIR"
     info "Installing from local repo: $SOURCE_DIR"
 else
-    # Download via curl
     info "Cloning repository..."
     TMPDIR=$(mktemp -d)
     git clone --depth 1 "$GITHUB_REPO" "$TMPDIR/hermes-agent-awooga-sfx" 2>/dev/null || {
@@ -81,13 +74,16 @@ else
     ok "Repository cloned"
 fi
 
+# Copy _lib.sh first (install.sh needs it; scripts need it at runtime)
+mkdir -p "$AWOOGA_DIR/src"
+cp "$SOURCE_DIR/src/_lib.sh" "$AWOOGA_DIR/src/_lib.sh"
+
 # Create directories
 mkdir -p "$AWOOGA_DIR"
 mkdir -p "$PACKS_DIR"
 
 # Copy scripts
 info "Installing scripts to $AWOOGA_DIR/src/..."
-mkdir -p "$AWOOGA_DIR/src"
 cp "$SOURCE_DIR/src/play-sound.sh" "$AWOOGA_DIR/src/play-sound.sh"
 cp "$SOURCE_DIR/src/switch-pack.sh" "$AWOOGA_DIR/src/switch-pack.sh"
 cp "$SOURCE_DIR/src/admin.sh" "$AWOOGA_DIR/src/admin.sh"
@@ -116,117 +112,18 @@ fi
 echo "$DEFAULT_PACK" > "$AWOOGA_DIR/active-pack"
 ok "Default pack set: $DEFAULT_PACK"
 
-# ─── Register Hermes hooks ──────────────────────────────────────────
+# ─── Register Hermes hooks ──────────────────────────────────────────────
 
 CONFIG_FILE="$HERMES_HOME/config.yaml"
+register_hooks
 
-if [[ -f "$CONFIG_FILE" ]]; then
-    info "Registering hooks in Hermes config..."
-
-    # Check if hooks already exist
-    if grep -q 'play-sound' "$CONFIG_FILE" 2>/dev/null; then
-        warn "Hooks already registered in config.yaml. Skipping."
-    else
-        # Add hooks block to config
-        # Use Python to safely modify YAML (or just append if no hooks: section)
-        if grep -q '^hooks:' "$CONFIG_FILE" 2>/dev/null; then
-            # Append to existing hooks section
-            # Find the hooks section and append after it
-            python3 << PYEOF
-import re, sys
-
-with open("$CONFIG_FILE", "r") as f:
-    content = f.read()
-
-# Find the hooks section and add our entries
-# Use the tilde-expanded absolute path. Hermes runs hooks via
-# shlex.split(os.path.expanduser(command)) with shell=False, so $AWOOGA_DIR
-# would never expand — we must bake the absolute path in at install time.
-hook_entries = """
-  post_llm_call:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
-  on_session_end:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
-  pre_approval_request:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
-  on_session_start:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
-"""
-
-# Find the hooks: section and append after it
-if "hooks:" in content:
-    # Find the end of the hooks section (next top-level key or end of file)
-    lines = content.split("\n")
-    new_lines = []
-    in_hooks = False
-    hooks_indent = None
-    for line in lines:
-        new_lines.append(line)
-        if line.strip() == "hooks:" or line.startswith("hooks:"):
-            in_hooks = True
-            hooks_indent = len(line) - len(line.lstrip())
-            # Insert our entries right after hooks:
-            for entry in hook_entries.strip().split("\n"):
-                new_lines.append(" " * hooks_indent + entry)
-            in_hooks = False
-        elif in_hooks and line and not line.startswith(" " * (hooks_indent + 1)) and not line.startswith("\t"):
-            # End of hooks section
-            for entry in hook_entries.strip().split("\n"):
-                new_lines.append(" " * hooks_indent + entry)
-            in_hooks = False
-    
-    with open("$CONFIG_FILE", "w") as f:
-        f.write("\n".join(new_lines))
-PYEOF
-        else
-            # No hooks section — add one
-            cat >> "$CONFIG_FILE" << HOOKS
-
-hooks:
-  post_llm_call:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
-  on_session_end:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
-  pre_approval_request:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
-  on_session_start:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
-hooks_auto_accept: true
-HOOKS
-        fi
-        ok "Hooks registered in config.yaml"
-    fi
-
-    # Ensure hooks_auto_accept is set
-    if ! grep -q 'hooks_auto_accept: true' "$CONFIG_FILE" 2>/dev/null; then
-        echo "hooks_auto_accept: true" >> "$CONFIG_FILE"
-        ok "Set hooks_auto_accept: true"
-    fi
-else
-    warn "Hermes config.yaml not found at $CONFIG_FILE"
-    warn "To register hooks manually, add this to your config.yaml:"
-    echo ""
-    cat << HOOKS
-hooks:
-  post_llm_call:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
-  on_session_end:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh complete"
-  pre_approval_request:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh approval"
-  on_session_start:
-    - command: "~/.hermes/awooga-sfx/src/play-sound.sh startup"
-hooks_auto_accept: true
-HOOKS
-fi
-
-# ─── Cleanup ─────────────────────────────────────────────────────────
+# ─── Cleanup ────────────────────────────────────────────────────────────
 
 if [[ -n "${TMPDIR:-}" ]] && [[ -d "$TMPDIR/hermes-agent-awooga-sfx" ]]; then
     rm -rf "$TMPDIR"
 fi
 
-# ─── Success ─────────────────────────────────────────────────────────
+# ─── Success ────────────────────────────────────────────────────────────
 
 echo ""
 echo -e "${GREEN}${BOLD}🔊 AWOOGA! Installation complete!${NC}"

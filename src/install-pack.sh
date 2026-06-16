@@ -4,6 +4,7 @@
 # @web_safe yes
 # @cron_safe yes
 # @timeout 120
+# @anchor install-pack
 # @param pack_id:text::Pack ID to install from GitHub Releases
 #
 # Usage:
